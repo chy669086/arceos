@@ -119,6 +119,10 @@ impl UspaceContext {
         Self(*trap_frame)
     }
 
+    pub const fn get_inner(&self) -> TrapFrame {
+        self.0
+    }
+
     /// Gets the instruction pointer.
     pub const fn get_ip(&self) -> usize {
         self.0.sepc

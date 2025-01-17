@@ -3,7 +3,7 @@ use core::ffi::c_int;
 
 use axerrno::{LinuxError, LinuxResult};
 use axio::PollState;
-use axns::{def_resource, AxResource};
+use axns::{def_resource, AxNamespace, AxResource};
 use flatten_objects::FlattenObjects;
 use spin::RwLock;
 
@@ -23,9 +23,31 @@ pub trait FileLike: Send + Sync {
 
 def_resource! {
     #[allow(non_camel_case_types)]
-    pub(crate) static FD_TABLE: AxResource<RwLock<FlattenObjects<Arc<dyn FileLike>, AX_FILE_LIMIT>>> = AxResource::new();
+    pub static FD_TABLE: AxResource<RwLock<FlattenObjects<Arc<dyn FileLike>, AX_FILE_LIMIT>>> = AxResource::new();
 }
 
+impl FD_TABLE {
+    pub fn copy_inner(&self) -> RwLock<FlattenObjects<Arc<dyn FileLike>, AX_FILE_LIMIT>> {
+        let table = self.read();
+        let mut new_table = FlattenObjects::new();
+        let count = table.count();
+        for i in 0..count {
+            new_table.add_at(i, table.get(i).unwrap().clone());
+        }
+        RwLock::new(new_table)
+    }
+
+    pub fn copy_from(dst: &AxNamespace, src: &AxNamespace) {
+        let table = FD_TABLE.deref_from(src).read();
+        let mut new_table = FlattenObjects::new();
+        let count = table.count();
+        for i in 0..count {
+            new_table.add_at(i, table.get(i).unwrap().clone());
+        }
+        drop(table);
+        *FD_TABLE.deref_from(dst).write() = new_table;
+    }
+}
 pub fn get_file_like(fd: c_int) -> LinuxResult<Arc<dyn FileLike>> {
     FD_TABLE
         .read()

@@ -25,6 +25,7 @@ use alloc::sync::Arc;
 use core::{alloc::Layout, fmt, ops::Deref};
 
 use lazyinit::LazyInit;
+use log::info;
 
 extern "C" {
     fn __start_axns_resource();
@@ -249,6 +250,21 @@ macro_rules! def_resource {
                 pub fn deref_global(&self) -> &$ty {
                     self.deref_from(&$crate::AxNamespace::global())
                 }
+
+                unsafe fn get_ptr_from(&self, ns: &$crate::AxNamespace) -> *mut $ty {
+                    self.deref_from(ns) as *const _ as *mut _
+                }
+
+                pub unsafe fn init_new_from(&self, ns: &$crate::AxNamespace) {
+                    let p = self.get_ptr_from(ns);
+                    p.write(AxResource::new());
+                }
+
+                pub unsafe fn drop_from(&self, ns: &$crate::AxNamespace) {
+                    let p = self.get_ptr_from(ns);
+                    p.drop_in_place();
+                }
+
 
                 /// Dereference the resource automatically, according whether the
                 /// `thread-local` feature of the `axns` crate is enabled or not.

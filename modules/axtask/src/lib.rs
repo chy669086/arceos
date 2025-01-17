@@ -48,6 +48,8 @@ cfg_if::cfg_if! {
         mod api;
         mod wait_queue;
 
+        pub use task::TaskState;
+
         #[cfg(feature = "irq")]
         mod timers;
 

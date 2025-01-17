@@ -1,3 +1,4 @@
+use alloc::string::String;
 use alloc::sync::Arc;
 use core::ffi::{c_char, c_int};
 
@@ -75,6 +76,70 @@ impl FileLike for File {
     }
 }
 
+pub struct Directory {
+    inner: Mutex<axfs::fops::Directory>,
+    path: String,
+}
+
+impl Directory {
+    fn new(inner: axfs::fops::Directory, path: String) -> Self {
+        Self {
+            inner: Mutex::new(inner),
+            path,
+        }
+    }
+
+    fn from_path(path: String, options: &OpenOptions) -> LinuxResult<Self> {
+        axfs::fops::Directory::open_dir(&path, options)
+            .map_err(Into::into)
+            .map(|d| Self::new(d, path))
+    }
+
+    fn add_to_fd_table(self) -> LinuxResult<c_int> {
+        super::fd_ops::add_file_like(Arc::new(self))
+    }
+
+    pub fn from_fd(fd: c_int) -> LinuxResult<Arc<Self>> {
+        let f = super::fd_ops::get_file_like(fd)?;
+        f.into_any()
+            .downcast::<Self>()
+            .map_err(|_| LinuxError::EINVAL)
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl FileLike for Directory {
+    fn read(&self, _buf: &mut [u8]) -> LinuxResult<usize> {
+        Err(LinuxError::EBADF)
+    }
+
+    fn write(&self, _buf: &[u8]) -> LinuxResult<usize> {
+        Err(LinuxError::EBADF)
+    }
+
+    fn stat(&self) -> LinuxResult<ctypes::stat> {
+        Err(LinuxError::EBADF)
+    }
+
+    fn into_any(self: Arc<Self>) -> Arc<dyn core::any::Any + Send + Sync> {
+        self
+    }
+
+    fn poll(&self) -> LinuxResult<PollState> {
+        Ok(PollState {
+            readable: true,
+            writable: false,
+        })
+    }
+
+    fn set_nonblocking(&self, _nonblocking: bool) -> LinuxResult {
+        Ok(())
+    }
+}
+
 /// Convert open flags to [`OpenOptions`].
 fn flags_to_options(flags: c_int, _mode: ctypes::mode_t) -> OpenOptions {
     let flags = flags as u32;
@@ -98,6 +163,10 @@ fn flags_to_options(flags: c_int, _mode: ctypes::mode_t) -> OpenOptions {
     }
     if flags & ctypes::O_EXEC != 0 {
         options.create_new(true);
+        // options.execute(true);
+    }
+    if flags & ctypes::O_DIRECTORY != 0 {
+        options.directory(true);
     }
     options
 }
@@ -111,9 +180,82 @@ pub fn sys_open(filename: *const c_char, flags: c_int, mode: ctypes::mode_t) -> 
     debug!("sys_open <= {:?} {:#o} {:#o}", filename, flags, mode);
     syscall_body!(sys_open, {
         let options = flags_to_options(flags, mode);
-        let file = axfs::fops::File::open(filename?, &options)?;
-        File::new(file).add_to_fd_table()
+        if options.has_directory() {
+            return Directory::from_path(filename?.into(), &options)?.add_to_fd_table();
+        }
+        add_file_or_directory_fd(
+            axfs::fops::File::open,
+            axfs::fops::Directory::open_dir,
+            filename?,
+            &options,
+        )
     })
+}
+
+pub fn sys_openat(
+    dirfd: c_int,
+    filename: *const c_char,
+    flags: c_int,
+    mode: ctypes::mode_t,
+) -> c_int {
+    let filename = char_ptr_to_str(filename);
+    debug!(
+        "sys_openat <= {} {:?} {:#o} {:#o}",
+        dirfd, filename, flags, mode
+    );
+
+    let Ok(filename) = filename else {
+        return -1;
+    };
+
+    let options = flags_to_options(flags, mode);
+
+    if filename.starts_with('/') || dirfd == -100 {
+        return sys_open(filename.as_ptr() as _, flags, mode);
+    }
+
+    syscall_body!(sys_openat, {
+        let dir = Directory::from_fd(dirfd)?;
+        add_file_or_directory_fd(
+            |filename, options| dir.inner.lock().open_file_at(filename, options),
+            |filename, options| dir.inner.lock().open_dir_at(filename, options),
+            filename,
+            &options,
+        )
+    })
+}
+
+/// Use the function to open file or directory, then add into file descriptor table.
+/// First try opening files, if fails, try directory.
+fn add_file_or_directory_fd<F, D, E>(
+    open_file: F,
+    open_dir: D,
+    filename: &str,
+    options: &OpenOptions,
+) -> LinuxResult<c_int>
+where
+    E: Into<LinuxError>,
+    F: FnOnce(&str, &OpenOptions) -> Result<axfs::fops::File, E>,
+    D: FnOnce(&str, &OpenOptions) -> Result<axfs::fops::Directory, E>,
+{
+    open_file(filename, options)
+        .map_err(Into::into)
+        .map(File::new)
+        .and_then(File::add_to_fd_table)
+        .or_else(|e| {
+            match e {
+                // LinuxError::EINVAL
+                _ => {
+                    let mut options = options.clone();
+                    options.execute(true);
+                    options.create_new(false);
+                    open_dir(filename, &options)
+                        .map_err(Into::into)
+                        .map(|d| Directory::new(d, filename.into()))
+                        .and_then(Directory::add_to_fd_table)
+                } // _ => Err(e.into()),
+            }
+        })
 }
 
 /// Set the position of the file indicated by `fd`.
@@ -178,6 +320,32 @@ pub unsafe fn sys_lstat(path: *const c_char, buf: *mut ctypes::stat) -> ctypes::
             return Err(LinuxError::EFAULT);
         }
         unsafe { *buf = Default::default() }; // TODO
+        Ok(0)
+    })
+}
+
+pub fn sys_mkdirat(dirfd: c_int, pathname: *const c_char, mode: ctypes::mode_t) -> c_int {
+    let pathname = char_ptr_to_str(pathname);
+    debug!("sys_mkdirat <= {} {:?} {:#o}", dirfd, pathname, mode);
+    syscall_body!(sys_mkdirat, {
+        let pathname = pathname?;
+        if pathname.starts_with('/') || dirfd == -100 {
+            return axfs::api::create_dir(pathname)
+                .map(|_| 0)
+                .map_err(Into::into);
+        }
+
+        let dir = Directory::from_fd(dirfd)?;
+        dir.inner.lock().create_dir(pathname)?;
+        Ok(0)
+    })
+}
+
+pub fn sys_chdir(path: *const c_char) -> c_int {
+    syscall_body!(sys_chdir, {
+        let path = char_ptr_to_str(path)?;
+        debug!("sys_chdir <= {:?}", path);
+        axfs::api::set_current_dir(path)?;
         Ok(0)
     })
 }

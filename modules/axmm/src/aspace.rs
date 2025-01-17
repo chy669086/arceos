@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use core::fmt;
 
 use axerrno::{ax_err, AxError, AxResult};
@@ -9,7 +11,7 @@ use memory_addr::{
 use memory_set::{MemoryArea, MemorySet};
 
 use crate::backend::Backend;
-use crate::mapping_err_to_ax_err;
+use crate::{kernel_aspace, kernel_page_table_root, mapping_err_to_ax_err};
 
 /// The virtual memory address space.
 pub struct AddrSpace {
@@ -57,6 +59,32 @@ impl AddrSpace {
             areas: MemorySet::new(),
             pt: PageTable::try_new().map_err(|_| AxError::NoMemory)?,
         })
+    }
+
+    pub fn from_exited_space(other: &AddrSpace) -> AxResult<Self> {
+        let mut aspace = Self::new_empty(other.base(), other.size())?;
+        aspace
+            .copy_mappings_from(&kernel_aspace().lock())
+            .expect("TODO: panic message");
+        aspace.copy_from(other);
+        Ok(aspace)
+    }
+
+    fn copy_from(&mut self, other: &AddrSpace) {
+        self.va_range = other.va_range;
+
+        for area in other.areas.iter() {
+            let new_area = MemoryArea::new(
+                area.start(),
+                area.size(),
+                area.flags(),
+                area.backend().clone(),
+            );
+            self.areas.map(new_area, &mut self.pt, false).unwrap();
+            let mut buf = vec![0u8; area.size()];
+            other.read(area.start(), &mut buf).unwrap();
+            self.write(area.start(), &buf).unwrap();
+        }
     }
 
     /// Copies page table mappings from another address space.
@@ -276,6 +304,33 @@ impl AddrSpace {
             }
         }
         false
+    }
+
+    /// Translates a virtual address to a c-type string.
+    ///
+    /// The translation stops when a null character is encountered.
+    pub fn translate_str(&self, mut vaddr: VirtAddr) -> AxResult<Vec<u8>> {
+        let mut str = Vec::new();
+        let mut buf = [0u8; 1];
+        loop {
+            self.read(vaddr, &mut buf)?;
+            if buf[0] == 0 {
+                break;
+            }
+            str.push(buf[0]);
+            vaddr = vaddr.add(1);
+        }
+        Ok(str)
+    }
+
+    /// Translates a user's virtual address to a kernel's virtual address.
+    pub fn translate(&self, vaddr: VirtAddr) -> AxResult<VirtAddr> {
+        let (mut paddr, _, _) = self.pt.query(vaddr).map_err(|_| AxError::BadAddress)?;
+        if vaddr.align_offset_4k() != 0 {
+            let align_offset = vaddr.align_offset_4k();
+            paddr += align_offset;
+        }
+        Ok(phys_to_virt(paddr))
     }
 }
 

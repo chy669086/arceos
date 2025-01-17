@@ -35,6 +35,20 @@ impl From<Duration> for ctypes::timeval {
     }
 }
 
+pub unsafe fn sys_get_time_of_day(ts: *mut ctypes::timeval) -> c_int {
+    syscall_body!(sys_get_time_of_day, {
+        if ts.is_null() {
+            return Err(LinuxError::EFAULT);
+        }
+        let now = axhal::time::wall_time().into();
+        if !ts.is_null() {
+            unsafe { *ts = now };
+        }
+        debug!("sys_get_time_of_day: {}.{:06}s", now.tv_sec, now.tv_usec);
+        Ok(0)
+    })
+}
+
 /// Get clock time since booting
 pub unsafe fn sys_clock_gettime(clk: ctypes::clockid_t, ts: *mut ctypes::timespec) -> c_int {
     syscall_body!(sys_clock_gettime, {

@@ -19,7 +19,7 @@ documentation = "https://arceos-org.github.io/arceos/arceos_posix_api/index.html
 [features]
 default = []
 
-uspace = ["axns/thread-local", "axfs/thread-local", "smp", "irq", "fs", "multitask", "net", "pipe", "select", "epoll"]
+uspace = ["thread-local", "smp", "irq", "fs", "multitask", "net", "pipe", "select", "epoll"]
 smp = ["axfeat/smp"]
 irq = ["axfeat/irq"]
 alloc = ["dep:axalloc", "axfeat/alloc"]
@@ -30,6 +30,7 @@ net = ["dep:axnet", "axfeat/net", "fd"]
 pipe = ["fd"]
 select = ["fd"]
 epoll = ["fd"]
+thread-local = ["axns/thread-local", "axfs/thread-local"]
 
 [dependencies]
 # ArceOS modules

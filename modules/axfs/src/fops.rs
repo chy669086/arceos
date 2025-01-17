@@ -4,6 +4,7 @@ use axerrno::{ax_err, ax_err_type, AxError, AxResult};
 use axfs_vfs::{VfsError, VfsNodeRef};
 use axio::SeekFrom;
 use cap_access::{Cap, WithCap};
+use core::ffi::c_int;
 use core::fmt;
 
 #[cfg(feature = "myfs")]
@@ -44,6 +45,8 @@ pub struct OpenOptions {
     truncate: bool,
     create: bool,
     create_new: bool,
+    directory: bool,
+    execute: bool,
     // system-specific
     _custom_flags: i32,
     _mode: u32,
@@ -60,6 +63,8 @@ impl OpenOptions {
             truncate: false,
             create: false,
             create_new: false,
+            directory: false,
+            execute: false,
             // system-specific
             _custom_flags: 0,
             _mode: 0o666,
@@ -88,6 +93,18 @@ impl OpenOptions {
     /// Sets the option to create a new file, failing if it already exists.
     pub fn create_new(&mut self, create_new: bool) {
         self.create_new = create_new;
+    }
+
+    pub fn execute(&mut self, execute: bool) {
+        self.execute = execute;
+    }
+
+    pub fn directory(&mut self, directory: bool) {
+        self.directory = directory;
+    }
+
+    pub fn has_directory(&self) -> bool {
+        self.directory
     }
 
     const fn is_valid(&self) -> bool {
@@ -143,7 +160,7 @@ impl File {
 
         let attr = node.get_attr()?;
         if attr.is_dir()
-            && (opts.create || opts.create_new || opts.write || opts.append || opts.truncate)
+        // && (opts.create || opts.create_new || opts.write || opts.append || opts.truncate)
         {
             return ax_err!(IsADirectory);
         }
@@ -392,6 +409,9 @@ impl From<&OpenOptions> for Cap {
         }
         if opts.write | opts.append {
             cap |= Cap::WRITE;
+        }
+        if opts.execute {
+            cap |= Cap::EXECUTE;
         }
         cap
     }
