@@ -4,6 +4,13 @@ use riscv::register::stval;
 
 use super::TrapFrame;
 
+cfg_if::cfg_if! {
+    if #[cfg(feature = "multitask")] {
+        mod trap_kernel;
+        pub use trap_kernel::*;
+    }
+}
+
 include_asm_marcos!();
 
 core::arch::global_asm!(
@@ -36,6 +43,10 @@ fn handle_page_fault(tf: &TrapFrame, mut access_flags: MappingFlags, is_user: bo
 #[no_mangle]
 fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool) {
     let scause = scause::read();
+
+    #[cfg(feature = "multitask")]
+    into_kernel();
+
     match scause.cause() {
         #[cfg(feature = "uspace")]
         Trap::Exception(E::UserEnvCall) => {
@@ -60,4 +71,7 @@ fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool) {
             );
         }
     }
+
+    #[cfg(feature = "multitask")]
+    into_user();
 }

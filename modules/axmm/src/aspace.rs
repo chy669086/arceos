@@ -11,7 +11,7 @@ use memory_addr::{
 use memory_set::{MemoryArea, MemorySet};
 
 use crate::backend::Backend;
-use crate::{kernel_aspace, kernel_page_table_root, mapping_err_to_ax_err};
+use crate::{kernel_aspace, kernel_page_table_root, mapping_err_to_ax_err, new_user_aspace};
 
 /// The virtual memory address space.
 pub struct AddrSpace {
@@ -62,10 +62,7 @@ impl AddrSpace {
     }
 
     pub fn from_exited_space(other: &AddrSpace) -> AxResult<Self> {
-        let mut aspace = Self::new_empty(other.base(), other.size())?;
-        aspace
-            .copy_mappings_from(&kernel_aspace().lock())
-            .expect("TODO: panic message");
+        let mut aspace = new_user_aspace(other.base(), other.size())?;
         aspace.copy_from(other);
         Ok(aspace)
     }

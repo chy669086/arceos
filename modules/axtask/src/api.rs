@@ -13,6 +13,7 @@ pub use crate::wait_queue::WaitQueue;
 
 /// The reference type of a task.
 pub type AxTaskRef = Arc<AxTask>;
+pub use crate::times::Tms;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "sched_rr")] {

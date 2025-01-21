@@ -91,6 +91,13 @@ impl TrapFrame {
 #[cfg(feature = "uspace")]
 pub struct UspaceContext(TrapFrame);
 
+impl UspaceContext {
+    pub fn set_arg(&mut self, p1: usize, p2: usize) {
+        self.0.regs.a1 = p1;
+        self.0.regs.a2 = p2;
+    }
+}
+
 #[cfg(feature = "uspace")]
 impl UspaceContext {
     /// Creates an empty context with all registers set to zero.

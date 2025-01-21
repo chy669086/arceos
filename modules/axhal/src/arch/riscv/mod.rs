@@ -4,6 +4,9 @@ mod macros;
 mod context;
 mod trap;
 
+#[cfg(feature = "multitask")]
+pub use trap::{INTO_KERNEL, INTO_USER};
+
 use memory_addr::{PhysAddr, VirtAddr};
 use riscv::asm;
 use riscv::register::{satp, sstatus, stvec};

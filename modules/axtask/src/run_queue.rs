@@ -176,6 +176,9 @@ impl AxRunQueue {
             return;
         }
 
+        prev_task.update_time();
+        next_task.reset_time();
+
         unsafe {
             let prev_ctx_ptr = prev_task.ctx_mut_ptr();
             let next_ctx_ptr = next_task.ctx_mut_ptr();

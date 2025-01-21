@@ -1,8 +1,10 @@
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::ffi::{c_char, c_int};
 
-use axerrno::{LinuxError, LinuxResult};
+use axerrno::{AxResult, LinuxError, LinuxResult};
 use axfs::fops::OpenOptions;
 use axio::{PollState, SeekFrom};
 use axsync::Mutex;
@@ -169,6 +171,26 @@ fn flags_to_options(flags: c_int, _mode: ctypes::mode_t) -> OpenOptions {
         options.directory(true);
     }
     options
+}
+
+pub fn read_file(fd: c_int, offset: usize, size: usize) -> LinuxResult<Vec<u8>> {
+    let file = get_file_like(fd)?;
+    let file_size = file.stat()?.st_size as usize;
+    let file = file
+        .into_any()
+        .downcast::<File>()
+        .map_err(|_| LinuxError::EBADF)?;
+
+    let file = file.inner.lock();
+    if offset < 0 || offset as usize >= file_size {
+        return Err(LinuxError::EINVAL);
+    }
+    let size = core::cmp::min(size, file_size - offset);
+
+    let mut buf = vec![0u8; size];
+    file.read_at(offset as u64, &mut buf)?;
+
+    Ok(buf)
 }
 
 /// Open a file by `filename` and insert it into the file descriptor table.

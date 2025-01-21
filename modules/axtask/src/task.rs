@@ -57,6 +57,9 @@ pub struct TaskInner {
 
     #[cfg(feature = "tls")]
     tls: TlsArea,
+
+    times: UnsafeCell<Times>,
+    ctimes: UnsafeCell<Times>,
 }
 
 impl TaskId {
@@ -173,6 +176,33 @@ impl TaskInner {
     pub unsafe fn get_ctx_mut(&self) -> &mut TaskContext {
         unsafe { &mut *self.ctx.get() }
     }
+
+    pub fn set_start_time(&self, is_kernel: bool) {
+        self.get_times_mut().set_curr_time(is_kernel);
+    }
+
+    pub fn update_time(&self) {
+        self.get_times_mut().update_time_by_curr();
+    }
+
+    pub fn add_child_time(&self, child: &AxTaskRef) {
+        let child_times = child.get_times_mut();
+        self.get_ctimes_mut().add(child_times);
+    }
+
+    pub fn reset_time(&self) {
+        self.get_times_mut().reset_time();
+    }
+
+    pub fn sys_times(&self, children: &[AxTaskRef]) -> Tms {
+        let self_times = self.get_times_mut();
+        let mut children_times = *self.get_ctimes_mut();
+        for child in children {
+            let child_times = child.get_times_mut();
+            children_times.add(child_times);
+        }
+        Tms::create_from_times(self_times, &children_times)
+    }
 }
 
 // private methods
@@ -199,6 +229,8 @@ impl TaskInner {
             task_ext: AxTaskExt::empty(),
             #[cfg(feature = "tls")]
             tls: TlsArea::alloc(),
+            times: UnsafeCell::new(Times::new()),
+            ctimes: UnsafeCell::new(Times::new()),
         }
     }
 
@@ -337,6 +369,14 @@ impl TaskInner {
             None => None,
         }
     }
+
+    pub fn get_times_mut(&self) -> &mut Times {
+        unsafe { &mut *self.times.get() }
+    }
+
+    pub fn get_ctimes_mut(&self) -> &mut Times {
+        unsafe { &mut *self.ctimes.get() }
+    }
 }
 
 impl fmt::Debug for TaskInner {
@@ -380,6 +420,7 @@ impl Drop for TaskStack {
     }
 }
 
+use crate::times::{Times, Tms};
 use core::mem::ManuallyDrop;
 
 /// A wrapper of [`AxTaskRef`] as the current task.
