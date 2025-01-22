@@ -40,7 +40,7 @@ enum TimesType {
 
 /// 一个辅助结构体，用于记录进程的用户态和内核态时间
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Times {
+pub struct Times {
     start_time: TimesType,
     pub(crate) utime: isize,
     pub(crate) stime: isize,

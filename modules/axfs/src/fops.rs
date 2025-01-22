@@ -4,7 +4,6 @@ use axerrno::{ax_err, ax_err_type, AxError, AxResult};
 use axfs_vfs::{VfsError, VfsNodeRef};
 use axio::SeekFrom;
 use cap_access::{Cap, WithCap};
-use core::ffi::c_int;
 use core::fmt;
 
 #[cfg(feature = "myfs")]

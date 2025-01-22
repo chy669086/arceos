@@ -25,7 +25,6 @@ use alloc::sync::Arc;
 use core::{alloc::Layout, fmt, ops::Deref};
 
 use lazyinit::LazyInit;
-use log::info;
 
 extern "C" {
     fn __start_axns_resource();

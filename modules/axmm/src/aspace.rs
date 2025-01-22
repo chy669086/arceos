@@ -11,7 +11,7 @@ use memory_addr::{
 use memory_set::{MemoryArea, MemorySet};
 
 use crate::backend::Backend;
-use crate::{kernel_aspace, kernel_page_table_root, mapping_err_to_ax_err, new_user_aspace};
+use crate::{mapping_err_to_ax_err, new_user_aspace};
 
 /// The virtual memory address space.
 pub struct AddrSpace {

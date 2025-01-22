@@ -1,10 +1,11 @@
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use core::ffi::{c_char, c_int};
+use core::ffi::{c_char, c_int, c_void, CStr};
 
-use axerrno::{AxResult, LinuxError, LinuxResult};
+use axerrno::{LinuxError, LinuxResult};
 use axfs::fops::OpenOptions;
 use axio::{PollState, SeekFrom};
 use axsync::Mutex;
@@ -182,7 +183,7 @@ pub fn read_file(fd: c_int, offset: usize, size: usize) -> LinuxResult<Vec<u8>> 
         .map_err(|_| LinuxError::EBADF)?;
 
     let file = file.inner.lock();
-    if offset < 0 || offset as usize >= file_size {
+    if offset >= file_size {
         return Err(LinuxError::EINVAL);
     }
     let size = core::cmp::min(size, file_size - offset);
@@ -404,4 +405,37 @@ pub fn sys_rename(old: *const c_char, new: *const c_char) -> c_int {
         axfs::api::rename(old_path, new_path)?;
         Ok(0)
     })
+}
+
+/// FAT file system does not support `linkat` syscall.
+/// So unlinkat is just a wrapper of `remove_file`.
+pub fn sys_unlinkat(dirfd: i32, pathname: *const c_char, flags: i32) -> i32 {
+    let pathname = char_ptr_to_str(pathname);
+    debug!("unlinkat <= {} {:?} {:#x}", dirfd, pathname, flags);
+    syscall_body!(unlinkat, {
+        let pathname = pathname?;
+        if pathname.starts_with('/') || dirfd == -100 {
+            return axfs::api::remove_file(pathname)
+                .map(|_| 0)
+                .map_err(Into::into);
+        }
+
+        let dir = Directory::from_fd(dirfd)?;
+        dir.inner.lock().remove_file(pathname)?;
+        Ok(0)
+    })
+}
+
+pub fn sys_mount(
+    source: *const c_char,
+    target: *const c_char,
+    fstype: *const c_char,
+    flags: u64,
+    data: *const c_void,
+) -> i32 {
+    axfs::api::mount(source, target, fstype, flags, data)
+}
+
+pub fn sys_umount(target: *const c_char) -> i32 {
+    axfs::api::unmount(target)
 }
