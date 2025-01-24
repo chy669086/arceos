@@ -131,6 +131,12 @@ impl<T> AxResource<T> {
         self.0.init_once(Arc::new(data));
     }
 
+    pub fn init_or_ignore(&self, data: T) {
+        if !self.0.is_inited() {
+            self.0.init_once(Arc::new(data));
+        }
+    }
+
     /// Initializes the resource with the shared data.
     pub fn init_shared(&self, data: Arc<T>) {
         self.0.init_once(data);
