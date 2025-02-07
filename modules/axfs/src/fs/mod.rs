@@ -1,6 +1,11 @@
 cfg_if::cfg_if! {
     if #[cfg(feature = "myfs")] {
         pub mod myfs;
+    }  else if #[cfg(feature = "lwext4_rust")] {
+        pub mod lwext4_rust;
+        pub use lwext4_rust::BLOCK_SIZE;
+    } else if #[cfg(feature = "ext4_rs")] {
+        pub mod ext4_rs;
     } else if #[cfg(feature = "fatfs")] {
         pub mod fatfs;
     }

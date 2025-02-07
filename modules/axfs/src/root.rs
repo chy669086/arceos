@@ -164,6 +164,14 @@ pub(crate) fn init_rootfs(disk: crate::dev::Disk) {
     cfg_if::cfg_if! {
         if #[cfg(feature = "myfs")] { // override the default filesystem
             let main_fs = fs::myfs::new_myfs(disk);
+        } else if #[cfg(feature = "lwext4_rust")] {
+            static EXT4_FS: LazyInit<Arc<fs::lwext4_rust::Ext4FileSystem>> = LazyInit::new();
+            EXT4_FS.init_once(Arc::new(fs::lwext4_rust::Ext4FileSystem::new(disk)));
+            let main_fs = EXT4_FS.clone();
+        } else if #[cfg(feature = "ext4_rs")] {
+            static EXT4_FS: LazyInit<Arc<fs::ext4_rs::Ext4FileSystem>> = LazyInit::new();
+            EXT4_FS.init_once(Arc::new(fs::ext4_rs::Ext4FileSystem::new(disk)));
+            let main_fs = EXT4_FS.clone();
         } else if #[cfg(feature = "fatfs")] {
             static FAT_FS: LazyInit<Arc<fs::fatfs::FatFileSystem>> = LazyInit::new();
             FAT_FS.init_once(Arc::new(fs::fatfs::FatFileSystem::new(disk)));

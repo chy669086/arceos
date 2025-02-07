@@ -1,8 +1,9 @@
 use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use alloc::vec;
 use alloc::vec::Vec;
+use alloc::{format, vec};
+use axtask::current;
 use core::ffi::{c_char, c_int, c_void, CStr};
 
 use axerrno::{LinuxError, LinuxResult};
@@ -11,17 +12,30 @@ use axio::{PollState, SeekFrom};
 use axsync::Mutex;
 
 use super::fd_ops::{get_file_like, FileLike};
+use crate::ctypes::timespec;
 use crate::{ctypes, utils::char_ptr_to_str};
 
 pub struct File {
     inner: Mutex<axfs::fops::File>,
+    st_atime: Mutex<timespec>,
+    st_mtime: Mutex<timespec>,
 }
 
 impl File {
     fn new(inner: axfs::fops::File) -> Self {
         Self {
             inner: Mutex::new(inner),
+            st_atime: Mutex::new(timespec::default()),
+            st_mtime: Mutex::new(timespec::default()),
         }
+    }
+
+    fn set_atime(&self, atime: timespec) {
+        self.st_atime.lock().set_as_utime(atime);
+    }
+
+    fn set_mtime(&self, mtime: timespec) {
+        self.st_mtime.lock().set_as_utime(mtime);
     }
 
     fn add_to_fd_table(self) -> LinuxResult<c_int> {
@@ -46,7 +60,8 @@ impl FileLike for File {
     }
 
     fn stat(&self) -> LinuxResult<ctypes::stat> {
-        let metadata = self.inner.lock().get_attr()?;
+        let inner = self.inner.lock();
+        let metadata = inner.get_attr()?;
         let ty = metadata.file_type() as u8;
         let perm = metadata.perm().bits() as u32;
         let st_mode = ((ty as u32) << 12) | perm;
@@ -59,6 +74,8 @@ impl FileLike for File {
             st_size: metadata.size() as _,
             st_blocks: metadata.blocks() as _,
             st_blksize: 512,
+            st_atime: *self.st_atime.lock(),
+            st_mtime: *self.st_mtime.lock(),
             ..Default::default()
         })
     }
@@ -273,7 +290,12 @@ where
                     options.execute(true);
                     options.create_new(false);
                     open_dir(filename, &options)
-                        .map_err(Into::into)
+                        .map_err(|e| {
+                            match e.into() {
+                                LinuxError::EINVAL => LinuxError::ENOTDIR,
+                                e => e,
+                            }
+                        })
                         .map(|d| Directory::new(d, filename.into()))
                         .and_then(Directory::add_to_fd_table)
                 } // _ => Err(e.into()),
@@ -295,6 +317,30 @@ pub fn sys_lseek(fd: c_int, offset: ctypes::off_t, whence: c_int) -> ctypes::off
         };
         let off = File::from_fd(fd)?.inner.lock().seek(pos)?;
         Ok(off)
+    })
+}
+
+pub fn sys_ioctl(fd: c_int, request: c_int, argp: *mut c_char) -> c_int {
+    debug!("sys_ioctl <= {} {} {:#x}", fd, request, argp as usize);
+    syscall_body!(sys_ioctl, {
+        let file = get_file_like(fd)?;
+        let file = file
+            .into_any()
+            .downcast::<File>()
+            .map_err(|_| LinuxError::EBADF)?;
+        let mut file = file.inner.lock();
+        match request {
+            0x5401 => {
+                let mut buf = unsafe { core::slice::from_raw_parts_mut(argp as *mut u8, 4) };
+                let size = file.read(&mut buf)?;
+                if size != 4 {
+                    return Err(LinuxError::EINVAL);
+                }
+                let size = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
+                Ok(size as c_int)
+            }
+            _ => Err(LinuxError::EINVAL),
+        }
     })
 }
 
@@ -380,7 +426,7 @@ pub fn sys_getcwd(buf: *mut c_char, size: usize) -> *mut c_char {
         if buf.is_null() {
             return Ok(core::ptr::null::<c_char>() as _);
         }
-        let dst = unsafe { core::slice::from_raw_parts_mut(buf as *mut u8, size as _) };
+        let dst = unsafe { core::slice::from_raw_parts_mut(buf as *mut u8, size) };
         let cwd = axfs::api::current_dir()?;
         let cwd = cwd.as_bytes();
         if cwd.len() < size {
@@ -439,3 +485,58 @@ pub fn sys_mount(
 pub fn sys_umount(target: *const c_char) -> i32 {
     axfs::api::unmount(target)
 }
+
+pub fn sys_utimensat(
+    dirfd: c_int,
+    pathname: *const c_char,
+    times: *const timespec,
+    flags: c_int,
+) -> c_int {
+    syscall_body!(sys_utimensat, {
+        debug!(
+            "sys_utimensat <= {} {:?} {:?} {}",
+            dirfd, pathname, times, flags
+        );
+        if dirfd != -100 && dirfd < 0 {
+            return Err(LinuxError::EBADF);
+        }
+
+        let (atime, mtime) = if times.is_null() {
+            let cur = axhal::time::wall_time();
+            (cur.into(), cur.into())
+        } else {
+            (unsafe { *times }, unsafe { *times.add(1) })
+        };
+
+        // TODO 暂时没有实现对文件的 utime 操作，现在的 utime 是绑定的 fd，而不是文件
+
+        if pathname.is_null() {
+            let file = File::from_fd(dirfd)?;
+            file.set_atime(atime);
+            file.set_mtime(mtime);
+            return Ok(0);
+        }
+
+        let path = char_ptr_to_str(pathname)?;
+
+        let file = if dirfd == -100 {
+            add_file_or_directory_fd(
+                |path, _| axfs::fops::File::open(path, &OpenOptions::new()),
+                |path, _| axfs::fops::Directory::open_dir(path, &OpenOptions::new()),
+                path,
+                &OpenOptions::new(),
+            )?
+        } else {
+            let dir = Directory::from_fd(dirfd)?;
+            add_file_or_directory_fd(
+                |path, _| dir.inner.lock().open_file_at(path, &OpenOptions::new()),
+                |path, _| dir.inner.lock().open_dir_at(path, &OpenOptions::new()),
+                path,
+                &OpenOptions::new(),
+            )?
+        };
+
+        Ok(0)
+    })
+}
+

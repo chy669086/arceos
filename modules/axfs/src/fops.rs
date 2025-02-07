@@ -1,5 +1,7 @@
 //! Low-level filesystem operations.
 
+use alloc::format;
+use alloc::string::{String, ToString};
 use axerrno::{ax_err, ax_err_type, AxError, AxResult};
 use axfs_vfs::{VfsError, VfsNodeRef};
 use axio::SeekFrom;
@@ -22,7 +24,7 @@ pub type FilePerm = axfs_vfs::VfsNodePerm;
 
 /// An opened file object, with open permissions and a cursor.
 pub struct File {
-    node: WithCap<VfsNodeRef>,
+    pub(crate) node: WithCap<VfsNodeRef>,
     is_append: bool,
     offset: u64,
 }
@@ -172,6 +174,7 @@ impl File {
         if opts.truncate {
             node.truncate(0)?;
         }
+
         Ok(Self {
             node: WithCap::new(node, access_cap),
             is_append: opts.append,

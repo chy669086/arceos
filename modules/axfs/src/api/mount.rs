@@ -43,7 +43,7 @@ pub fn unmount(target: *const c_char) -> i32 {
     0
 }
 
-fn to_root_path(path: &str) -> AxResult<String> {
+pub(crate) fn to_root_path(path: &str) -> AxResult<String> {
     if path.is_empty() {
         return Err(axerrno::AxError::InvalidInput);
     }

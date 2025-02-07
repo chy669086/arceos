@@ -3,10 +3,12 @@
 mod dir;
 mod file;
 mod mount;
+mod times;
 
 pub use self::dir::{DirBuilder, DirEntry, ReadDir};
 pub use self::file::{File, FileType, Metadata, OpenOptions, Permissions};
 pub use self::mount::*;
+pub use self::times::*;
 
 use alloc::{string::String, vec::Vec};
 use axio::{self as io, prelude::*};

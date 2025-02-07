@@ -116,6 +116,7 @@ impl FileLike for Pipe {
         loop {
             let mut ring_buffer = self.buffer.lock();
             let loop_read = ring_buffer.available_read();
+            info!("read: {} bytes", loop_read);
             if loop_read == 0 {
                 if self.write_end_close() {
                     return Ok(read_size);
@@ -132,6 +133,8 @@ impl FileLike for Pipe {
                 buf[read_size] = ring_buffer.read_byte();
                 read_size += 1;
             }
+
+            return Ok(read_size);
         }
     }
 
