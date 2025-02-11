@@ -290,11 +290,9 @@ where
                     options.execute(true);
                     options.create_new(false);
                     open_dir(filename, &options)
-                        .map_err(|e| {
-                            match e.into() {
-                                LinuxError::EINVAL => LinuxError::ENOTDIR,
-                                e => e,
-                            }
+                        .map_err(|e| match e.into() {
+                            LinuxError::EINVAL => LinuxError::ENOTDIR,
+                            e => e,
                         })
                         .map(|d| Directory::new(d, filename.into()))
                         .and_then(Directory::add_to_fd_table)
@@ -479,11 +477,19 @@ pub fn sys_mount(
     flags: u64,
     data: *const c_void,
 ) -> i32 {
-    axfs::api::mount(source, target, fstype, flags, data)
+    syscall_body!(sys_mount, {
+        let source = char_ptr_to_str(source)?;
+        let target = char_ptr_to_str(target)?;
+        let fstype = char_ptr_to_str(fstype)?;
+        Ok(axfs::api::mount(source, target, fstype, flags, data))
+    })
 }
 
 pub fn sys_umount(target: *const c_char) -> i32 {
-    axfs::api::unmount(target)
+    syscall_body!(sys_umount, {
+        let target = char_ptr_to_str(target)?;
+        Ok(axfs::api::unmount(target))
+    })
 }
 
 pub fn sys_utimensat(
@@ -539,4 +545,3 @@ pub fn sys_utimensat(
         Ok(0)
     })
 }
-

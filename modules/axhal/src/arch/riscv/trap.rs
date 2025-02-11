@@ -45,7 +45,9 @@ fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool) {
     let scause = scause::read();
 
     #[cfg(feature = "multitask")]
-    into_kernel();
+    if from_user {
+        into_kernel();
+    }
 
     match scause.cause() {
         #[cfg(feature = "uspace")]
@@ -73,5 +75,8 @@ fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool) {
     }
 
     #[cfg(feature = "multitask")]
-    into_user();
+    if from_user {
+        into_user();
+        handle_signal();
+    }
 }

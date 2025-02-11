@@ -4,16 +4,7 @@ use alloc::string::{String, ToString};
 use axerrno::AxResult;
 use core::ffi::{c_char, c_void, CStr};
 
-pub fn mount(
-    source: *const c_char,
-    target: *const c_char,
-    fstype: *const c_char,
-    _flags: u64,
-    _data: *const c_void,
-) -> i32 {
-    let source = unsafe { CStr::from_ptr(source).to_str().unwrap() };
-    let target = unsafe { CStr::from_ptr(target).to_str().unwrap() };
-    let fstype = unsafe { CStr::from_ptr(fstype).to_str().unwrap() };
+pub fn mount(source: &str, target: &str, _fstype: &str, _flags: u64, _data: *const c_void) -> i32 {
     let file_system = match crate::root::find_mounted_fs(source) {
         Ok(fs) => fs,
         Err(e) => {
@@ -36,8 +27,7 @@ pub fn mount(
     0
 }
 
-pub fn unmount(target: *const c_char) -> i32 {
-    let target = unsafe { CStr::from_ptr(target).to_str().unwrap() };
+pub fn unmount(target: &str) -> i32 {
     let target = to_root_path(target).unwrap();
     crate::root::unmount_fs(&target);
     0

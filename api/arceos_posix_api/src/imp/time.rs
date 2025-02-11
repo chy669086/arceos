@@ -63,7 +63,9 @@ pub unsafe fn sys_clock_gettime(clk: ctypes::clockid_t, ts: *mut ctypes::timespe
                 return Err(LinuxError::EINVAL);
             }
         };
-        unsafe { *ts = now };
+        unsafe {
+            ts.write(now);
+        };
         debug!("sys_clock_gettime: {}.{:09}s", now.tv_sec, now.tv_nsec);
         Ok(0)
     })
