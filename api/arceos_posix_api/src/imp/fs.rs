@@ -13,6 +13,7 @@ use axsync::Mutex;
 
 use super::fd_ops::{get_file_like, FileLike};
 use crate::ctypes::timespec;
+use crate::ctypes_ext::AT_FDCWD;
 use crate::{ctypes, utils::char_ptr_to_str};
 
 pub struct File {
@@ -250,7 +251,7 @@ pub fn sys_openat(
 
     let options = flags_to_options(flags, mode);
 
-    if filename.starts_with('/') || dirfd == -100 {
+    if filename.starts_with('/') || dirfd == AT_FDCWD {
         return sys_open(filename.as_ptr() as _, flags, mode);
     }
 
@@ -356,7 +357,9 @@ pub unsafe fn sys_stat(path: *const c_char, buf: *mut ctypes::stat) -> c_int {
         options.read(true);
         let file = axfs::fops::File::open(path?, &options)?;
         let st = File::new(file).stat()?;
-        unsafe { *buf = st };
+        unsafe {
+            buf.write(st);
+        };
         Ok(0)
     })
 }
@@ -396,7 +399,7 @@ pub fn sys_mkdirat(dirfd: c_int, pathname: *const c_char, mode: ctypes::mode_t) 
     debug!("sys_mkdirat <= {} {:?} {:#o}", dirfd, pathname, mode);
     syscall_body!(sys_mkdirat, {
         let pathname = pathname?;
-        if pathname.starts_with('/') || dirfd == -100 {
+        if pathname.starts_with('/') || dirfd == AT_FDCWD {
             return axfs::api::create_dir(pathname)
                 .map(|_| 0)
                 .map_err(Into::into);
@@ -458,7 +461,7 @@ pub fn sys_unlinkat(dirfd: i32, pathname: *const c_char, flags: i32) -> i32 {
     debug!("unlinkat <= {} {:?} {:#x}", dirfd, pathname, flags);
     syscall_body!(unlinkat, {
         let pathname = pathname?;
-        if pathname.starts_with('/') || dirfd == -100 {
+        if pathname.starts_with('/') || dirfd == AT_FDCWD {
             return axfs::api::remove_file(pathname)
                 .map(|_| 0)
                 .map_err(Into::into);
@@ -503,7 +506,7 @@ pub fn sys_utimensat(
             "sys_utimensat <= {} {:?} {:?} {}",
             dirfd, pathname, times, flags
         );
-        if dirfd != -100 && dirfd < 0 {
+        if dirfd != AT_FDCWD && dirfd < 0 {
             return Err(LinuxError::EBADF);
         }
 
@@ -525,7 +528,7 @@ pub fn sys_utimensat(
 
         let path = char_ptr_to_str(pathname)?;
 
-        let file = if dirfd == -100 {
+        let file = if dirfd == -AT_FDCWD {
             add_file_or_directory_fd(
                 |path, _| axfs::fops::File::open(path, &OpenOptions::new()),
                 |path, _| axfs::fops::Directory::open_dir(path, &OpenOptions::new()),
